@@ -13,6 +13,6 @@ export default createLogger({
         customFormat
     ),
     transports: [
-        new transports.File({ filename: 'logger/metaserver.log' }),
+        new transports.File({ filename: './src/logger/metaserver.log' }),
     ],
 });

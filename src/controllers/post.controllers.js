@@ -1,10 +1,10 @@
 import mongoose from "mongoose"
 
-import logger from '../logger/logger.js';
-import UserModel from "../../models/user.models.js";
-import FriendModel from "../../models/friend.models.js";
-import PostModel from "../../models/post.models.js";
-import { URL_POST } from '../utils/constants.js'
+import logger from '../logger/index.js';
+import UserModel from "../models/user.models.js";
+import FriendModel from "../models/friend.models.js";
+import PostModel from "../models/post.models.js";
+import { URL_POST } from '../utils/constants.utils.js'
 
 export const getPosts = async (req, res) => {
 

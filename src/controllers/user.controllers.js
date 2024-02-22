@@ -1,11 +1,11 @@
 import mongoose from "mongoose";
 
-import logger from '../../logger/logger.js';
-import UserModel from "../../models/user.models.js";
-import FriendModel from "../../models/friend.models.js";
+import logger from '../logger/index.js';
+import UserModel from "../models/user.models.js";
+import FriendModel from "../models/friend.models.js";
 
 import { API_REQUEST, URL_USER, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK,
-    ACT_DELETE_REQUEST, ACT_ADD_FRIEND, ACT_ACCEPT_REQUEST } from '../../utils/constants.js'
+    ACT_DELETE_REQUEST, ACT_ADD_FRIEND, ACT_ACCEPT_REQUEST } from '../utils/constants.utils.js'
 
 export const getActionsOnFriend = async (req, res) => {
     const { uid, fid } = req.params;

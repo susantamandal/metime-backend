@@ -1,8 +1,8 @@
 import Jwt from 'jsonwebtoken'
 
-import logger from '../../logger/logger.js';
-import UserModel from "../../models/user.models.js";
-import { API_REQUEST, URL_AUTH } from '../../utils/constants.js'
+import logger from '../logger/index.js';
+import UserModel from "../models/user.models.js";
+import { API_REQUEST, URL_AUTH } from '../utils/constants.utils.js'
 
 const URL = URL_AUTH;
 
