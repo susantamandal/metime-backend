@@ -1,2 +1,4 @@
 node_modules
 *.env*
+src/logger/metaserver.log
+src/logger/loggerConfig.js
