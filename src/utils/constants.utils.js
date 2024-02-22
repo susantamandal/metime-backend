@@ -1,0 +1,14 @@
+export const API_REQUEST = 'API Request:';
+export const URL_AUTH = 'metaserver//api/v1/auth-service';
+export const URL_USER = 'metaserver/api/v1/user-service';
+export const URL_POST = 'metaserver//api/v1/post-service';
+export const ACT_MESSAGE = 'Message';
+export const ACT_BLOCK = 'Block';
+export const ACT_UNBLOCK = 'Unblock';
+export const ACT_UNFRIEND = 'Unfriend';
+export const ACT_POST = 'Post'
+export const ACT_COMMENT = 'Comment'
+export const ACT_ADD_FRIEND = 'Add Friend'
+export const ACT_ACCEPT_REQUEST = 'Accept Request'
+export const ACT_DELETE_REQUEST = 'Delete Request'
+export const ACT_LIKE = 'Like'
