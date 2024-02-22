@@ -12,13 +12,13 @@ server.use(cors({
     origin: process.env.CORS_ORIGIN,
     credentials: true
 }));
-server.use(express.json({ limit: '30kb', extended: true }));
-server.use(express.urlencoded({ limit: '30kb', extended: true }));
+server.use(express.json({ limit: '5mb', extended: true }));
+server.use(express.urlencoded({ limit: '5mb', extended: true }));
 server.use(express.static("public"));
 server.use(cookieParser());
 
-server.use(URL_AUTH, authRouter)
 server.use(URL_USER, userRouter)
+server.use(URL_AUTH, authRouter)
 server.use(URL_POST, postRouter)
 
 export { server };
