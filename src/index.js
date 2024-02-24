@@ -15,6 +15,7 @@ import { connectDatabase } from './db/index.js';
     } catch (error) {
         console.error(`Backend failure: ${error.message}`);
         logger.error(`Backend failure: ${error.message}`);
+        process.exit(1);
     }
 }
 )()
