@@ -3,8 +3,9 @@ import Jwt from 'jsonwebtoken'
 import logger from '../logger/index.js';
 import UserModel from "../models/user.models.js";
 import { API_REQUEST, URL_AUTH } from '../utils/constants.utils.js'
-
-const URL = URL_AUTH;
+import { ApiError } from '../utils/apiError.utils.js';
+import { ApiResponse } from '../utils/apiResponse.utils.js';
+import { generateTokens } from '../utils/generateTokens.utils.js';
 
 // ...............................Log In User.............................
 
@@ -13,26 +14,55 @@ export const login = async (req, res) => {
     logger.info('....login starts....')
 
     try {
-        logger.info(`login successful! ${req.body}`);
-        let { email, googleId, password } = req.body
-        logger.info(`login request: ${email}`)
-        let user = await UserModel.findOne({ email })
-        logger.info(`login successful! ${user}`);
-        if (user && (user.googleId && user.googleId === googleId || user.password && user.password === password)) {
-            UserModel.findByIdAndUpdate({ _id: user._id }, { active: true });
-            let token = Jwt.sign({ id: user._id, email: user.email }, process.env.JWT_SECRET_KEY)
-            res.cookie('metaserver-token', token, { httpOnly: false, maxAge: 10000 })
-            logger.info(`login successful! ${user._id}`);
-            res.status(200).json({ message: 'Login successful!', data: user })
-        }
-        else {
-            logger.error('User unauthorized!')
-            res.status(401).json({ message: 'User unauthorized!' })
+
+        const { email, password, sessionOverride = false } = req.body;
+
+        if (!email || !password)
+            throw new ApiError(400, "email and password are required to login");
+
+        const user = await UserModel.findOne({ email });
+
+        if (!user)
+            throw new ApiError(400, "no user found with this email");
+
+        if (!await user.isPasswordCorrect(password))
+            throw new ApiError(400, "password does not match");
+
+        if (user.refreshToken) {
+            Jwt.verify(user.refreshToken, process.env.REFRESH_TOKEN_SECRET, (error, decodedToken) => {
+                if (!error && decodedToken?._id === user._id.toString() && !sessionOverride) {
+                    throw new ApiError(400, "user already logged in some other session");
+                }
+            });
+        };
+
+        const { accessToken, refreshToken } = await generateTokens(user);
+        user.active = true;
+        user.lastActiveAt = new Date();
+        user.refreshToken = refreshToken;
+        await user.save({ validateBeforeSave: false });
+        user.password = undefined;
+        user.refreshToken = undefined;
+
+        const options = {
+            httpOnly: true,
+            secure: true
         }
 
+        res.status(200)
+            .cookie("accessToken", accessToken, options)
+            .cookie("refreshToken", refreshToken, options)
+            .json(new ApiResponse(200, {
+                user,
+                accessToken,
+                refreshToken
+            }, "login successful"));
+
     } catch (error) {
-        logger.error(error.message)
-        res.status(404).json({ message: error.message })
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
     }
     logger.info('....login ends....')
 }
@@ -42,51 +72,95 @@ export const login = async (req, res) => {
 export const logout = async (req, res) => {
     logger.info(`${API_REQUEST} ${URL_AUTH}/logout`);
     logger.info('....logout starts....')
-    logger.info(`....logout user: ${req.params.id}`)
     try {
-        UserModel.findByIdAndUpdate({ _id: req.params.id }, { active: false, lastActiveAt: new Date()});
-        logger.info(`logout successful! ${req.params.id}`);
-        res.status(200).json({ message: 'Logout successful!', data: null })
+        await UserModel.findByIdAndUpdate(req.user._id, { active: false, lastActiveAt: new Date(), refreshToken: "" });
+        const options = {
+            httpOnly: true,
+            secure: true
+        }
+        res.status(200)
+            .clearCookie("accessToken", options)
+            .clearCookie("refreshToken", options)
+            .json(new ApiResponse(200, null, "logout successful!"));
+
     } catch (error) {
-        logger.error(error.message)
-        res.status(404).json({ message: error.message });
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
     }
     logger.info('....logout ends....')
-}
+};
 
 // ...............................Sign Up User.............................
 
-export const signup = async (req, res) => {
+export const signup = async (req, res, next) => {
+
     logger.info(`${API_REQUEST} ${URL_AUTH}/signup`);
     logger.info('....signup starts....')
-    logger.info(`....signup request: ${req.body.email}`)
+
     try {
-
-        let user = await UserModel.findOne({ email: req.body.email })
-
-        if (user && req.body.password) {
-            logger.error(`signup rejected!`)
-            res.status(401).json({ message: `user already exists: ${user._id}` });
-        }
-        else if (!user) {
-            user = new UserModel(req.body)
-            await user.save()
-            logger.info(`signup successful! ${user._id}`)
-        }
-        else
-            logger.error(`user already exists: ${user._id}`)
-
-        if (user && !user.googleId && req.body.googleId) {
-            await UserModel.findByIdAndUpdate({ _id: user._id }, { googleId: req.body.googleId}, { new: true });
-            logger.info(`user's googleId updated successfully!`)
-
-        }
-        await login(req, res)
-
+        const user = await UserModel.create(req.body);
+        user.password = undefined;
+        res.status(201).json(new ApiResponse(201, user, "signup successful"));
 
     } catch (error) {
-        logger.error(error.message)
-        res.status(404).json({ message: error.message });
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
     }
+
     logger.info('....signup ends....')
-}
+};
+
+
+export const generateRefreshToken = async (req, res, next) => {
+
+    logger.info(`${API_REQUEST} ${URL_AUTH}/refreshtoken`);
+    logger.info('....generateRefreshToken starts....')
+
+    try {
+
+        const token = req.cookie?.refreshToken || req.body?.refreshToken;
+        if (!token)
+            throw new ApiError(401, "unauthorized access request");
+
+        const decodedToken = Jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
+
+        let user = await UserModel.findById(decodedToken._id).select("-password");
+
+        if (!user && !user.refreshToken)
+            throw new ApiError(401, "invalid token or session expired");
+
+        const decodedRefreshToken = Jwt.verify(user.refreshToken, process.env.REFRESH_TOKEN_SECRET);
+
+        if (decodedToken.iat !== decodedRefreshToken.iat)
+            throw new ApiError(401, "session refreshed already");
+
+        const { accessToken, refreshToken } = await generateTokens(user);
+
+        user = await UserModel.findByIdAndUpdate(user._id, { active: true, lastActiveAt: new Date(), refreshToken }, { new: true }).select("-password -refreshToken");
+
+        const options = {
+            httpOnly: true,
+            secure: true
+        };
+
+        res.status(200)
+            .cookie("accessToken", accessToken, options)
+            .cookie("refreshToken", refreshToken, options)
+            .json(new ApiResponse(200, {
+                user,
+                accessToken,
+                refreshToken
+            }, "refreshToken successful"));
+    } catch (error) {
+
+        logger.info(error.stack);
+        error = new ApiError(error?.statusCode || 401, error.message);
+        res.status(error.statusCode).json(error);
+    }
+
+    logger.info('....generateRefreshToken ends....')
+};

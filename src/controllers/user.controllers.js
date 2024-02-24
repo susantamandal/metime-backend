@@ -3,9 +3,16 @@ import mongoose from "mongoose";
 import logger from '../logger/index.js';
 import UserModel from "../models/user.models.js";
 import FriendModel from "../models/friend.models.js";
+import { asyncHandler } from "../utils/asyncHandler.utils.js";
 
-import { API_REQUEST, URL_USER, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK,
-    ACT_DELETE_REQUEST, ACT_ADD_FRIEND, ACT_ACCEPT_REQUEST } from '../utils/constants.utils.js'
+import {
+    API_REQUEST, URL_USER, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK,
+    ACT_DELETE_REQUEST, ACT_ADD_FRIEND, ACT_ACCEPT_REQUEST
+} from '../utils/constants.utils.js'
+import { ApiError } from "../utils/apiError.utils.js";
+import { ApiResponse } from "../utils/apiResponse.utils.js";
+
+
 
 export const getActionsOnFriend = async (req, res) => {
     const { uid, fid } = req.params;
@@ -19,13 +26,13 @@ export const getActionsOnFriend = async (req, res) => {
         const connection = await FriendModel.findOne({ $or: [{ requesterId: uid, accepterId: fid }, { requesterId: fid, accepterId: uid }] });
         let actions = []
         if (connection?.status === 'A') {
-            actions = [ ...actions, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK]
+            actions = [...actions, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK]
         }
         else if (connection?.status === 'P') {
-            actions = [ ...actions, ACT_DELETE_REQUEST, ACT_BLOCK ]
+            actions = [...actions, ACT_DELETE_REQUEST, ACT_BLOCK]
         }
-        else{
-            actions = [ ...actions, ACT_ADD_FRIEND, ACT_BLOCK ]
+        else {
+            actions = [...actions, ACT_ADD_FRIEND, ACT_BLOCK]
         }
         logger.info(`getActionsOnUser successful!`);
         res.status(200).json(actions);
@@ -36,22 +43,51 @@ export const getActionsOnFriend = async (req, res) => {
     logger.info('getActionsOnUser ends')
 }
 
+export const getLoginUser = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_USER}`);
+    logger.info(`getLogInUserDetails starts`);
+
+    try {
+        if (!req?.user)
+            throw new ApiError(400, "user not found");
+
+        res.status(200).json(new ApiResponse(200, req.user));
+
+    } catch (error) {
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info('getLogInUserDetails ends')
+};
+
 export const getUser = async (req, res) => {
     logger.info(`${API_REQUEST} ${URL_USER}`);
     logger.info(`getUser starts`);
-    let _id = req.query.id;
+
     try {
-        logger.info(`getUser requested: ${_id ? _id : 'All'}`);
-        const users = _id ? await UserModel.findById(_id) : await UserModel.find(req.query);
-        logger.info(`getUser successful! ${_id ? _id : 'All'}`);
-        res.status(200).json(users);
+
+        const {id} = req.query;
+
+        if (!id)
+            throw new ApiError(400, "id is required to fetch user details");
+
+        const user = await UserModel.findById(id).select("_id firstName lastName gender email accountDiabled active lastActiveAt profileImageUrl");
+
+        if (!user)
+            throw new ApiError(400, `no user found with id ${_id}`);
+
+        res.status(200).json(new ApiResponse(200, user));
 
     } catch (error) {
-        logger.error(error.message)
-        res.status(404).json({ message: error.message });
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
     }
     logger.info('getUser ends')
-}
+};
 
 export const createUser = async (req, res) => {
     logger.info(`${API_REQUEST} ${URL_USER}`);
@@ -140,7 +176,7 @@ export const getFriends = async (req, res) => {
 
 export const friendRequest = async (req, res) => {
     const id = req.params.id
-    const {requesterId, accepterId, action} = req.body;
+    const { requesterId, accepterId, action } = req.body;
     logger.info(`${API_REQUEST} ${URL_USER}/${id}/friendrequest`);
     logger.info(`sendFriendRequest starts`);
     if (!mongoose.Types.ObjectId.isValid(requesterId)) {
@@ -152,13 +188,13 @@ export const friendRequest = async (req, res) => {
         return res.status(404).send(`No user with id ${fid} exist.`);
     }
     try {
-        if( action === ACT_ADD_FRIEND ){
-            const newRequest= new UserModel(req.body);
+        if (action === ACT_ADD_FRIEND) {
+            const newRequest = new UserModel(req.body);
             await newRequest.save();
             logger.info(`send friendrequest successful!`);
             res.status(200).json({ message: 'Friend Request is sent successfully.' });
         }
-        else if( action === ACT_ACCEPT_REQUEST ){
+        else if (action === ACT_ACCEPT_REQUEST) {
             await FriendModel.findOneAndUpdate(
                 { requesterId: requesterId, accepterId: accepterId },
                 { status: 'A' }
@@ -166,8 +202,8 @@ export const friendRequest = async (req, res) => {
             logger.info(`accept friendrequest successful!`);
             res.status(200).json({ message: 'Friend Request is accepted successfully.' });
         }
-        
-        
+
+
     } catch (error) {
         logger.error(error.message);
         res.status(408).json({ message: error.message });
