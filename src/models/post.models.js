@@ -1,5 +1,22 @@
 import mongoose from "mongoose";
 
+const commentSchema = mongoose.Schema({
+    comment: {
+        type: String,
+        maxLength: [100, "length cannot exceed 100 characters"],
+        required: true
+    },
+    createdBy:{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "metaserver_user",
+        required: true,
+    },
+    media:{
+        type: Object
+    }
+}, { timestamps: true });
+
+
 const postSchema = mongoose.Schema({
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
@@ -19,8 +36,9 @@ const postSchema = mongoose.Schema({
     },
     privacy: {
         type: String,
+        enum: ["public", "private"],
+        default: "public",
         required: true,
-        default: 'public'
     },
     visibility: {
         type: Boolean,
@@ -43,7 +61,7 @@ const postSchema = mongoose.Schema({
         default: []
     },
     comments: {
-        type: [String],
+        type: [commentSchema],
         default: []
     },
     tags: {
