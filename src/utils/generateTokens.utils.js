@@ -8,6 +8,6 @@ export const generateTokens = async (user) => {
         return {accessToken, refreshToken};
     }catch(error){
         logger.info(error.stack);
-        throw new ApiError(500, "Error in generating tokens");
+        throw new ApiError(500, "error in generating tokens");
     }
 };
