@@ -130,7 +130,7 @@ export const generateRefreshToken = async (req, res, next) => {
 
         let user = await UserModel.findById(decodedToken._id).select("-password");
 
-        if (!user && !user.refreshToken)
+        if (!user || !user.refreshToken)
             throw new ApiError(401, "invalid token or session expired");
 
         const decodedRefreshToken = Jwt.verify(user.refreshToken, process.env.REFRESH_TOKEN_SECRET);
