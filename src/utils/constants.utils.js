@@ -12,3 +12,7 @@ export const ACT_ADD_FRIEND = 'Add Friend'
 export const ACT_ACCEPT_REQUEST = 'Accept Request'
 export const ACT_DELETE_REQUEST = 'Delete Request'
 export const ACT_LIKE = 'Like'
+export const GET_POST_DEFAULT_OFFSET=0
+export const GET_POST_DEFAULT_LIMIT=10
+export const GET_COMMENT_DEFAULT_OFFSET=0
+export const GET_COMMENT_DEFAULT_LIMIT=10
