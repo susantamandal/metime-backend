@@ -81,7 +81,7 @@ export const logout = async (req, res) => {
         res.status(200)
             .clearCookie("accessToken", options)
             .clearCookie("refreshToken", options)
-            .json(new ApiResponse(200, null, "logout successful!"));
+            .json(new ApiResponse(200, {}, "logout successful!"));
 
     } catch (error) {
 
