@@ -55,7 +55,7 @@ const userSchema = mongoose.Schema({
             message: props => `${props.value} is not a valid phone number, must be a valid 10 digit number`
         }
     },
-    profileImageUrl: {
+    profileAvatar: {
         type: String,
         trim: true
     },
