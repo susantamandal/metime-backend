@@ -1,32 +1,20 @@
-import mongoose from "mongoose";
-
-const commentSchema = mongoose.Schema({
-    comment: {
-        type: String,
-        maxLength: [100, "length cannot exceed 100 characters"],
-        required: true
-    },
-    createdBy:{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "metaserver_user",
-        required: true,
-    },
-    media:{
-        type: Object
-    }
-}, { timestamps: true });
-
+import mongoose, { Model } from "mongoose";
+import circularJSON from  "circular-json"
+import { destroyFromCloudinary } from "../utils/cloudinary.utils.js";
+import CommentModel from "./comment.models.js";
 
 const postSchema = mongoose.Schema({
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "metaserver_user",
-        required: true,
+        required: [true, "value is required"],
+        immutable: true
     },
-    postedTo: {
+    postedOn: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "metaserver_user",
-        required: true,
+        required: [true, "value is required"],
+        immutable: true
     },
     type: {
         type: String,
@@ -36,16 +24,18 @@ const postSchema = mongoose.Schema({
     },
     privacy: {
         type: String,
-        enum: ["public", "private"],
-        default: "public",
-        required: true,
+        enum: {
+            values: ["public", "private"],
+            message: 'value is not supported'
+        },
+        default: "public"
     },
     visibility: {
         type: Boolean,
-        required: true,
-        default: true
+        default: true,
+        required: [true, "value is required"],
     },
-    title: {
+    caption: {
         type: String
     },
     quickInfo: {
@@ -60,10 +50,6 @@ const postSchema = mongoose.Schema({
         ],
         default: []
     },
-    comments: {
-        type: [commentSchema],
-        default: []
-    },
     tags: {
         type: [
             {
@@ -74,10 +60,23 @@ const postSchema = mongoose.Schema({
         default: []
     },
     media: {
-        type: [Object],
+        type: [String],
         default: []
     }
 },{ timestamps: true });
+
+postSchema.pre('deleteOne', { document: true, query: false }, async function(next){
+    const comments = await CommentModel.find({belongsTo: this._id, parent: "000000000000000000000000"});
+    for(let comment of comments){
+        await comment.deleteOne();
+    }
+    if (this.media.length > 0) {
+        for (let index = 0; index < this.media.length; index++) {
+            await destroyFromCloudinary(`post-${this._id}-media-${index + 1}`);
+        }
+    }
+    next();
+})
 
 const PostModel = mongoose.model('metaserver_post', postSchema);
 
