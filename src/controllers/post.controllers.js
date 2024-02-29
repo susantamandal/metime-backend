@@ -42,7 +42,6 @@ export const getPosts = async (req, res) => {
             {
                 $facet: {
                     posts: [
-
                         { $sort: { createdAt: -1 } },
                         { $skip: offset },
                         { $limit: limit },
@@ -51,16 +50,18 @@ export const getPosts = async (req, res) => {
                                 from: "metaserver_comments",
                                 localField: "_id",
                                 foreignField: "belongsTo",
-                                as: "comments",
-                                pipeline: [
-                                    {
-                                        $match: {
-                                            parent: mongoose.mongo.ObjectId("000000000000000000000000")
-                                        }
-                                    },
-                                    { $sort: { createdAt: 1 } },
-                                    { $limit: GET_COMMENT_DEFAULT_LIMIT }
-                                ],
+                                as: "comments"
+                            }
+                        },
+                        {
+                            $addFields: {
+                                totalComments: { $size: "$comments" }
+                            }
+                        },
+                        {
+                            $project: {
+                                comments: 0,
+                                __v: 0
                             }
                         }
                     ],
@@ -79,6 +80,7 @@ export const getPosts = async (req, res) => {
             },
             {
                 $addFields: {
+                    user_id: user._id,
                     pagination: { $arrayElemAt: ["$pagination", 0] }
                 }
             }
@@ -111,7 +113,7 @@ export const createPost = async (req, res) => {
             let mediaFromCloud = await uploadOnCloudinary(mediaLocalPath);
             mediaCloudinaryUrls.push(mediaFromCloud.secure_url);
         }
-        post = await PostModel.findByIdAndUpdate(post._id, { media: mediaCloudinaryUrls }, { new: true });
+        post = await PostModel.findByIdAndUpdate(post._id, { media: mediaCloudinaryUrls }, { new: true }).select("-__v");
         res.status(201).json(new ApiResponse(201, post));
     }
     catch (error) {
@@ -143,8 +145,7 @@ export const deletePost = async (req, res) => {
                 }
             ]
         });
-        if (!post)
-            throw new ApiError(400, `no post found with id ${_id}`);
+        if (!post) throw new ApiError(400, `no post found with id ${_id}`);
         await post.deleteOne();
         res.status(200).json(new ApiResponse(200, {}, "post deleted successfully"));
     }
@@ -187,7 +188,7 @@ export const updatePost = async (req, res) => {
         }
 
         const updatePayload = (mediaCloudinaryUrls.length > 0 ? { media: mediaCloudinaryUrls } : (media === "" ? { media: [] } : {}));
-        post = await PostModel.findByIdAndUpdate(_id, updatePayload, { new: true });
+        post = await PostModel.findByIdAndUpdate(_id, updatePayload, { new: true }).select("-__v");
         res.status(200).json(new ApiResponse(200, post));
     }
     catch (error) {
@@ -242,7 +243,26 @@ export const getComments = async (req, res) => {
                     comments: [
                         { $sort: { createdAt: 1 } },
                         { $skip: offset },
-                        { $limit: limit }
+                        { $limit: limit },
+                        {
+                            $lookup: {
+                                from: "metaserver_comments",
+                                localField: "_id",
+                                foreignField: "parent",
+                                as: "subComments"
+                            }
+                        },
+                        {
+                            $addFields: {
+                                totalSubComments: { $size: "$subComments" }
+                            }
+                        },
+                        {
+                            $project: {
+                                subComments: 0,
+                                __v: 0
+                            }
+                        }
                     ],
                     pagination: [
                         { $count: "total" },
@@ -259,6 +279,7 @@ export const getComments = async (req, res) => {
             },
             {
                 $addFields: {
+                    post_id: _id,
                     pagination: { $arrayElemAt: ["$pagination", 0] }
                 }
             }
@@ -293,7 +314,7 @@ export const createComment = async (req, res) => {
 
         if (mediaLocalFilePath) {
             const mediaFromCloud = await uploadOnCloudinary(mediaLocalFilePath);
-            comment = await CommentModel.findByIdAndUpdate(comment._id, { media: mediaFromCloud.secure_url }, { new: true });
+            comment = await CommentModel.findByIdAndUpdate(comment._id, { media: mediaFromCloud.secure_url }, { new: true }).select("-__v");
         }
 
         res.status(201).json(new ApiResponse(201, comment));
@@ -336,7 +357,7 @@ export const updateComment = async (req, res) => {
 
         const updatePayload = (mediaFromCloud.secure_url ? { media: mediaFromCloud.secure_url } : (media === "" ? { media: "" } : {}));
 
-        comment = await CommentModel.findByIdAndUpdate(_id, updatePayload, { new: true });
+        comment = await CommentModel.findByIdAndUpdate(_id, updatePayload, { new: true }).select("-__v");
 
         res.status(201).json(new ApiResponse(200, comment));
     }
