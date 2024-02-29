@@ -13,7 +13,7 @@ export const verifyAccessToken = async (req, res, next) => {
 
         const decodedAccessToken = Jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
 
-        const user = await UserModel.findById(decodedAccessToken._id).select("-password");
+        const user = await UserModel.findById(decodedAccessToken._id).select("-password -__v");
 
         if (!user || !user.refreshToken)
             throw new ApiError(401, "invalid token or session expired");
