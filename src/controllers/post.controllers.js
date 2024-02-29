@@ -308,6 +308,7 @@ export const createComment = async (req, res) => {
             parent = mongoose.Types.ObjectId.createFromHexString("000000000000000000000000");
         }
         let comment = await CommentModel.create({ createdBy: req.user._id, parent, ...rest });
+        comment.__v = undefined;
         req.comment = comment;
 
         const mediaLocalFilePath = await setUniqueCommentMediaFileName(req);
