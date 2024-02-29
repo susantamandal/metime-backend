@@ -3,7 +3,7 @@ import UserModel from "../models/user.models.js";
 import FriendModel from "../models/friend.models.js";
 import {
     API_REQUEST, URL_USER, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK,
-    ACT_DELETE_REQUEST, ACT_ADD_FRIEND, ACT_ACCEPT_REQUEST
+    ACT_DELETE_REQUEST, ACT_ADD_FRIEND, ACT_ACCEPT_REQUEST, GET_POST_DEFAULT_OFFSET, GET_POST_DEFAULT_LIMIT
 } from '../utils/constants.utils.js'
 import { ApiError } from "../utils/apiError.utils.js";
 import { ApiResponse } from "../utils/apiResponse.utils.js";
@@ -49,7 +49,80 @@ export const getLoginUser = async (req, res) => {
         if (!req?.user)
             throw new ApiError(400, "user not found");
 
-        res.status(200).json(new ApiResponse(200, req.user));
+        const loginUserAggregate = await UserModel.aggregate([
+            {
+                $match: { _id: req.user._id }
+            },
+            {
+                $lookup: {
+                    from: "metaserver_posts",
+                    localField: "_id",
+                    foreignField: "createdBy",
+                    as: "postDetails",
+                    pipeline: [
+                        {
+                            $facet: {
+                                posts: [
+                                    { $sort: { createdAt: -1 } },
+                                    { $skip: GET_POST_DEFAULT_OFFSET },
+                                    { $limit: GET_POST_DEFAULT_LIMIT },
+                                    {
+                                        $lookup: {
+                                            from: "metaserver_comments",
+                                            localField: "_id",
+                                            foreignField: "belongsTo",
+                                            as: "comments"
+                                        }
+                                    },
+                                    {
+                                        $addFields: {
+                                            totalComments: { $size: "$comments" }
+                                        }
+                                    },
+                                    {
+                                        $project: {
+                                            comments: 0,
+                                            __v: 0
+                                        }
+                                    }
+                                ],
+                                pagination: [
+                                    { $count: "total" },
+                                    {
+                                        $addFields: {
+                                            offset: GET_POST_DEFAULT_OFFSET,
+                                            limit: {
+                                                $cond: [{ $lt: ["$total", GET_POST_DEFAULT_LIMIT] }, "$total", GET_POST_DEFAULT_LIMIT]
+                                            }
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            $addFields: {
+                                pagination: { $arrayElemAt: ["$pagination", 0] },
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                $addFields: {
+                    postDetails: { $first: "$postDetails" },
+
+                }
+            },
+            {
+                $project: {
+                    password: 0,
+                    refreshToken: 0,
+                    __v: 0
+                }
+            }
+        ]);
+
+        res.status(200).json(new ApiResponse(200, loginUserAggregate[0]));
 
     } catch (error) {
 
@@ -103,7 +176,7 @@ export const updateProfileAvatar = async (req, res) => {
 
             if (response.result === "ok") {
                 await UserModel.findByIdAndUpdate(req.user._id, {
-                    $unset:{
+                    $unset: {
                         profileAvatar: 1
                     }
                 });
@@ -118,7 +191,7 @@ export const updateProfileAvatar = async (req, res) => {
 
             if (!avatarLocalPath)
                 throw new ApiError(400, "avatar file is required");
-            
+
             const avatar = await uploadOnCloudinary(avatarLocalPath);
 
             if (!avatar)
