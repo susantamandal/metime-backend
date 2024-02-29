@@ -15,12 +15,15 @@ export const login = async (req, res) => {
 
     try {
 
-        const { email, password, sessionOverride = false } = req.body;
+        let { email, password, sessionOverride = false } = req.body;
 
+        sessionOverride = (typeof sessionOverride === "boolean" && sessionOverride === true || sessionOverride === "true");
+
+        console.log("sessionOverride", sessionOverride);
         if (!email || !password)
             throw new ApiError(400, "email and password are required to login");
 
-        const user = await UserModel.findOne({ email });
+        const user = await UserModel.findOne({ email }).select("-__v");
 
         if (!user)
             throw new ApiError(400, "no user found with this email");
@@ -73,7 +76,13 @@ export const logout = async (req, res) => {
     logger.info(`${API_REQUEST} ${URL_AUTH}/logout`);
     logger.info('....logout starts....')
     try {
-        await UserModel.findByIdAndUpdate(req.user._id, { active: false, lastActiveAt: new Date(), refreshToken: "" });
+        await UserModel.findByIdAndUpdate(req.user._id, {
+            $set: {
+                active: false,
+                lastActiveAt: new Date()
+            },
+            $unset: { refreshToken: 1 }
+        });
         const options = {
             httpOnly: true,
             secure: true
