@@ -102,7 +102,11 @@ export const updateProfileAvatar = async (req, res) => {
             const response = await destroyFromCloudinary(`profile-avatar-${req.user._id}`);
 
             if (response.result === "ok") {
-                await UserModel.findByIdAndUpdate(req.user._id, { profileAvatar: "" }, { new: true });
+                await UserModel.findByIdAndUpdate(req.user._id, {
+                    $unset:{
+                        profileAvatar: 1
+                    }
+                });
                 res.status(200).json(new ApiResponse(200, response, "avatar deleted successfully"));
             }
             else
@@ -120,9 +124,9 @@ export const updateProfileAvatar = async (req, res) => {
             if (!avatar)
                 throw new ApiError(500, "error in uploading avatar file");
 
-            await UserModel.findByIdAndUpdate(req.user._id, { profileAvatar: avatar.secure_url }, { new: true });
+            const user = await UserModel.findByIdAndUpdate(req.user._id, { profileAvatar: avatar.secure_url }, { new: true }).select("_id profileAvatar");
 
-            res.status(200).json(new ApiResponse(200, { _id: req.user._id, profileAvatar: avatar.secure_url }, "avatar uploaded successfully"));
+            res.status(200).json(new ApiResponse(200, user, "avatar uploaded successfully"));
 
         }
 
