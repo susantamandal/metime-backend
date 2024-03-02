@@ -394,30 +394,30 @@ export const deleteComment = async (req, res) => {
     logger.info(`deleteComment ends!`)
 }
 
-export const getLikes = async (req, res) => {
+export const getLikesOrDisLikes = async (req, res) => {
     logger.info(`${API_REQUEST} ${URL_POST}`);
     logger.info(`getLikes starts!`)
     try {
-        let { id: _id } = req.params, { offset, limit } = req.query;
+        let { id: _id } = req.params, { offset, limit } = req.query, like = (!req.path.includes("dislike"));
 
         offset = isNaN(offset) ? GET_LIKE_DEFAULT_OFFSET : parseInt(offset);
         limit = isNaN(limit) ? GET_LIKE_DEFAULT_LIMIT : parseInt(limit);
 
         if (!_id) throw new ApiError(400, `post or comment id/_id is required to fetch likes`);
 
-        const like = await LikeModel.findOne({ like: true, postedTo: _id });
+        const likeDoc = await LikeModel.findOne({ like, postedTo: _id });
 
-        if (!like)
+        if (!likeDoc)
             throw new ApiError(400, `no like available for the post/comment with id ${_id}`);
 
-        const doc = (like.type === "Comment" ? await CommentModel.findById(_id) : await PostModel.findById(_id));
+        const doc = (likeDoc.type === "Comment" ? await CommentModel.findById(_id) : await PostModel.findById(_id));
 
         if (!doc) throw new ApiError(400, `no ${like.type.toLowercase()} found with id ${_id}`);
 
         const likesAggregate = await LikeModel.aggregate([
             {
                 $match: {
-                    like: true,
+                    like,
                     postedTo: doc._id
                 }
             },
@@ -493,24 +493,20 @@ export const getLikes = async (req, res) => {
     logger.info(`getLikes ends!`)
 }
 
-export const createLike = async (req, res) => {
+export const addLikeOrDisLike = async (req, res) => {
+
     logger.info(`${API_REQUEST} ${URL_POST}`);
     logger.info(`createLike starts!`)
     try {
-        let { type, postedTo } = req.body;
+        ;
+        const { type, postedTo } = req.body, like = (!req.path.includes("dislike"));
         if (!type || !postedTo) throw new ApiError(400, "type and postedTo id are required to post a like");
         const doc = (type === "Comment" ? await CommentModel.findById(postedTo) : await PostModel.findById(postedTo));
         if (!doc) throw new ApiError(400, `no ${type.toLowercase()} found with id ${postedTo}`);
-
-        let like = await LikeModel.findOne({ postedTo, createdBy: req.user._id });
-
-        if (like)
-            like = await LikeModel.findByIdAndUpdate(like._id, { like: true }, { new: true });
-        else
-            like = await LikeModel.create({ type, postedTo, createdBy: req.user._id });
-
-        like.__v = undefined;
-        res.status(201).json(new ApiResponse(201, like));
+        let likeDoc = await LikeModel.findOneAndUpdate({ postedTo, createdBy: req.user._id }, { like }, { new: true });
+        if (!likeDoc) likeDoc = await LikeModel.create({ like, type, postedTo, createdBy: req.user._id });
+        likeDoc.__v = undefined;
+        res.status(201).json(new ApiResponse(201, likeDoc));
     }
     catch (error) {
         logger.info(error.stack)
@@ -518,4 +514,22 @@ export const createLike = async (req, res) => {
         res.status(error.statusCode).json(error);
     }
     logger.info(`createLike ends!`)
+}
+
+export const removeLikeOrDisLike = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_POST}`);
+    logger.info(`deleteLike starts!`)
+    try {
+        let { id: postedTo } = req.params, like = (!req.path.includes("dislike"));
+        if (!postedTo) throw new ApiError(400, "postedTo id is required to delete a like");
+        const likeDoc = await LikeModel.findOneAndDelete({ like, postedTo, createdBy: req.user._id });
+        if(!likeDoc) throw new ApiError(400, `no ${like?'like':'dislike'} found by the user ${req.user._id}`);
+        res.status(200).json(new ApiResponse(200, {}, "like/dislike deleted sucessfully"));
+    }
+    catch (error) {
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info(`deleteLike ends!`)
 }

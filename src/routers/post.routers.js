@@ -1,7 +1,7 @@
 import express from 'express';
 
 import { verifyAccessToken } from '../middlewares/apigateway.middlewares.js';
-import { getPosts, createPost, updatePost, deletePost, getComments, createComment, updateComment, deleteComment, getLikes, createLike} from '../controllers/post.controllers.js'
+import { getPosts, createPost, updatePost, deletePost, getComments, createComment, updateComment, deleteComment, getLikesOrDisLikes, addLikeOrDisLike, removeLikeOrDisLike} from '../controllers/post.controllers.js'
 import { upload } from "../middlewares/multer.middlewares.js"
 
 const router = express.Router();
@@ -16,12 +16,12 @@ router.post('/comment',  verifyAccessToken, upload.single('media'), createCommen
 router.patch('/comment',  verifyAccessToken, upload.single('media'), updateComment );
 router.delete('/comment/:cid', verifyAccessToken, deleteComment );
 
-router.get('/:id/likes', verifyAccessToken, getLikes);
-router.post('/like',  verifyAccessToken, createLike );
-// router.delete('/unlike/:lid',  verifyAccessToken, deleteLike );
+router.get('/:id/likes', verifyAccessToken, getLikesOrDisLikes);
+router.post('/like',  verifyAccessToken, addLikeOrDisLike );
+router.delete('/unlike/:id',  verifyAccessToken, removeLikeOrDisLike );
 
-// router.get('/:pid/disLikes', verifyAccessToken, getLikes);
-// router.post('/disLike',  verifyAccessToken, createLike );
-// router.patch('/unDisLike/:lid',  verifyAccessToken, deleteLike );
+router.get('/:id/dislikes', verifyAccessToken, getLikesOrDisLikes);
+router.post('/dislike',  verifyAccessToken, addLikeOrDisLike );
+router.delete('/undislike/:id',  verifyAccessToken, removeLikeOrDisLike );
 
 export default router;
