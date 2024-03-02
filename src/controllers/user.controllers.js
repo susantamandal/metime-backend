@@ -1,15 +1,11 @@
 import logger from '../logger/index.js';
 import UserModel from "../models/user.models.js";
 import FriendModel from "../models/friend.models.js";
-import {
-    API_REQUEST, URL_USER, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK,
-    ACT_DELETE_REQUEST, ACT_ADD_FRIEND, ACT_ACCEPT_REQUEST, GET_POST_DEFAULT_OFFSET, GET_POST_DEFAULT_LIMIT
-} from '../utils/constants.utils.js'
+import { API_REQUEST, URL_USER, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK, ACT_DELETE_REQUEST, ACT_ADD_FRIEND, GET_FR_DEFAULT_OFFSET, GET_FR_DEFAULT_LIMIT } from '../utils/constants.utils.js'
 import { ApiError } from "../utils/apiError.utils.js";
 import { ApiResponse } from "../utils/apiResponse.utils.js";
 import { destroyFromCloudinary, uploadOnCloudinary } from "../utils/cloudinary.utils.js";
 import { setUniqueProfileAvatarFileName } from "../utils/setUniqueFileNames.utils.js";
-
 
 
 export const getActionsOnFriend = async (req, res) => {
@@ -21,7 +17,7 @@ export const getActionsOnFriend = async (req, res) => {
     try {
         // const user = await UserModel.find({ _id: uid });
         // const friend = await UserModel.find({ _id: fid });
-        const connection = await FriendModel.findOne({ $or: [{ requesterId: uid, accepterId: fid }, { requesterId: fid, accepterId: uid }] });
+        const connection = await FriendModel.findOne({ $or: [{ requesterId: uid, acceptorId: fid }, { requesterId: fid, acceptorId: uid }] });
         let actions = []
         if (connection?.status === 'A') {
             actions = [...actions, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK]
@@ -41,7 +37,7 @@ export const getActionsOnFriend = async (req, res) => {
     logger.info('getActionsOnUser ends')
 }
 
-export const getLoginUser = async (req, res) => {
+export const getLoginUserAggregate = async (req, res) => {
     logger.info(`${API_REQUEST} ${URL_USER}`);
     logger.info(`getLogInUserDetails starts`);
 
@@ -56,65 +52,50 @@ export const getLoginUser = async (req, res) => {
             {
                 $lookup: {
                     from: "metaserver_posts",
-                    localField: "_id",
-                    foreignField: "createdBy",
-                    as: "postDetails",
                     pipeline: [
                         {
-                            $facet: {
-                                posts: [
-                                    { $sort: { createdAt: -1 } },
-                                    { $skip: GET_POST_DEFAULT_OFFSET },
-                                    { $limit: GET_POST_DEFAULT_LIMIT },
+                            $match: {
+                                $or: [
+                                    { createdBy: req.user._id },
+                                    { postedOn: req.user._id }
+                                ]
+                            }
+                        }
+                    ],
+                    as: "posts",
+                }
+            },
+            {
+                $lookup: {
+                    from: "metaserver_friends",
+                    pipeline: [
+                        {
+                            $match: {
+                                $and: [
+                                    { status: "Accepted" },
                                     {
-                                        $lookup: {
-                                            from: "metaserver_comments",
-                                            localField: "_id",
-                                            foreignField: "belongsTo",
-                                            as: "comments"
-                                        }
-                                    },
-                                    {
-                                        $addFields: {
-                                            totalComments: { $size: "$comments" }
-                                        }
-                                    },
-                                    {
-                                        $project: {
-                                            comments: 0,
-                                            __v: 0
-                                        }
-                                    }
-                                ],
-                                pagination: [
-                                    { $count: "total" },
-                                    {
-                                        $addFields: {
-                                            offset: GET_POST_DEFAULT_OFFSET,
-                                            limit: {
-                                                $cond: [{ $lt: ["$total", GET_POST_DEFAULT_LIMIT] }, "$total", GET_POST_DEFAULT_LIMIT]
-                                            }
-                                        }
+                                        $or: [
+                                            { requesterId: req.user._id },
+                                            { acceptorId: req.user._id }
+                                        ]
                                     }
                                 ]
                             }
-                        },
-                        {
-                            $addFields: {
-                                pagination: { $arrayElemAt: ["$pagination", 0] },
-                            }
                         }
-                    ]
+                    ],
+                    as: "friends",
                 }
             },
             {
                 $addFields: {
-                    postDetails: { $first: "$postDetails" },
-
+                    totalPosts: { $size: "$posts" },
+                    totalFriends: { $size: "$friends" },
                 }
             },
             {
                 $project: {
+                    posts: 0,
+                    friends: 0,
                     password: 0,
                     refreshToken: 0,
                     __v: 0
@@ -139,12 +120,12 @@ export const getUser = async (req, res) => {
 
     try {
 
-        const { id } = req.query;
+        const { id: _id } = req.params;
 
-        if (!id)
+        if (!_id)
             throw new ApiError(400, "id is required to fetch user details");
 
-        const user = await UserModel.findById(id).select("_id firstName lastName gender email accountDiabled active lastActiveAt profileAvatar");
+        const user = await UserModel.findById(_id).select("_id firstName lastName gender email accountDiabled active lastActiveAt profileAvatar");
 
         if (!user)
             throw new ApiError(400, `no user found with id ${_id}`);
@@ -212,128 +193,361 @@ export const updateProfileAvatar = async (req, res) => {
     logger.info('updateProfileAvatar ends')
 }
 
-// export const createUser = async (req, res) => {
-//     logger.info(`${API_REQUEST} ${URL_USER}`);
-//     logger.info(`createUser starts`);
-//     const newUser = new UserModel(req.body);
-//     try {
-//         logger.info(`createUser payload!: ${req.body}`);
-//         await newUser.save();
-//         logger.info(`createUser successful! ${newUser._id}`);
-//         res.status(201).json(newUser);
-//     } catch (error) {
-//         logger.error(error.message)
-//         res.status(409).json({ message: error.message });
-//     }
-//     logger.info('createUser ends')
-// }
+export const getUserRequests = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_USER}`);
+    logger.info(`getUserRequests starts`);
 
-// export const updateUser = async (req, res) => {
-//     const { id: _id } = req.params;
-//     const user = req.body;
-//     logger.info(`${API_REQUEST} ${URL_USER}/${_id}`);
-//     logger.info(`updateUser starts`);
-//     if (!mongoose.Types.ObjectId.isValid(_id)) {
-//         logger.error(`No user with id ${_id} exist.`)
-//         return res.status(404).send(`No user with id ${_id} exist.`);
-//     }
+    try {
 
-//     try {
-//         logger.info(`updateUser payload!: ${req.body}`);
-//         const updatedUser = await UserModel.findByIdAndUpdate(_id, { ...user, _id }, { new: true });
-//         logger.info(`updateUser successful! ${updatedUser._id}`);
-//         res.status(202).json(updatedUser);
-//     } catch (error) {
-//         logger.error(error.message)
-//         res.status(408).json({ message: error.message });
-//     }
-//     logger.info('updateUser ends')
-// }
+        let { offset, limit } = req.query
+        offset = isNaN(offset) ? GET_FR_DEFAULT_OFFSET : parseInt(offset);
+        limit = isNaN(limit) ? GET_FR_DEFAULT_LIMIT : parseInt(limit);
 
-// export const deleteUser = async (req, res) => {
-//     const { id: _id } = req.params;
+        let userRequestAggregate = await FriendModel.aggregate([
+            {
+                $match: { requesterId: req.user._id, status: "Pending" }
+            },
+            {
+                $facet: {
+                    requests: [
+                        { $sort: { createdAt: 1 } },
+                        { $skip: offset },
+                        { $limit: limit },
+                        {
+                            $lookup: {
+                                from: "metaserver_users",
+                                localField: "acceptorId",
+                                foreignField: "_id",
+                                as: "requestTo",
+                                pipeline: [
+                                    {
+                                        $project: {
+                                            _id: 1,
+                                            firstName: 1,
+                                            lastName: 1,
+                                            gender: 1,
+                                            email: 1,
+                                            active: 1,
+                                            profileAvatar: 1
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    pagination: [
+                        { $count: "total" },
+                        {
+                            $addFields: {
+                                offset: offset,
+                                limit: {
+                                    $cond: [{ $lt: ["$total", limit] }, "$total", limit]
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                
+                $set: {
+                    requests: {
+                        $map: {
+                            input: "$requests",
+                            as: "request",
+                            in: {
+                                $mergeObjects: [
+                                    { $first: "$$request.requestTo" },
+                                    { friendRequest_id: "$$request._id", friendRequest_status: "$$request.status"}
+                                ]
+                            }
+                        }
+                    },
+                    pagination: { $arrayElemAt: ["$pagination", 0] },
+                    user_id: req.user._id
+                }
+            }
+        ]);
 
-//     logger.info(`${API_REQUEST} ${URL_USER}/${_id}`);
-//     logger.info(`ndeleteUser starts`);
-//     if (!mongoose.Types.ObjectId.isValid(_id)) {
-//         logger.error(`No user with id ${_id} exist.`)
-//         return res.status(404).send(`No user with id ${_id} exist.`);
-//     }
-//     try {
-//         logger.info(`deleteUser requested: ${_id}`);
-//         await UserModel.findByIdAndRemove(_id);
-//         logger.info(`deleteUser successful! ${_id}`);
-//         res.status(204).json("User Deleted Successfully.");
-//     } catch (error) {
-//         logger.error(error.message);
-//         res.status(408).json({ message: error.message });
-//     }
-//     logger.info('deleteUser ends');
-// }
+        res.status(200).json(new ApiResponse(200, userRequestAggregate[0]));
+    } catch (error) {
 
-// export const getFriends = async (req, res) => {
-//     const requesterId = req.params.id;
-//     logger.info(`${API_REQUEST} ${URL_USER}/${requesterId}/friends`);
-//     logger.info(`getFriends starts`);
-//     if (!mongoose.Types.ObjectId.isValid(requesterId)) {
-//         logger.error(`No user with id ${requesterId} exist.`)
-//         return res.status(404).send(`No user with id ${requesterId} exist.`);
-//     }
-//     try {
-//         let friends = await FriendModel.find({ $or: [{ requesterId: requesterId, status: 'A' }, { accepterId: requesterId, status: 'A' }] });
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info('getUserRequests ends')
+}
 
-//         friends = friends.map(friend => mongoose.Types.ObjectId(
-//             friend.requesterId === requesterId ? friend.accepterId : friend.requesterId
-//         ));
+export const getFriendRequests = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_USER}`);
+    logger.info(`getFriendRequests starts`);
 
-//         friends = await UserModel.find({ '_id': { $in: friends } })
+    try {
+        let { offset, limit } = req.query
+        offset = isNaN(offset) ? GET_FR_DEFAULT_OFFSET : parseInt(offset);
+        limit = isNaN(limit) ? GET_FR_DEFAULT_LIMIT : parseInt(limit);
 
-//         logger.info(`getFriends successful! ${friends.length}`);
-//         res.status(200).json(friends);
-//     } catch (error) {
-//         logger.error(error.message);
-//         res.status(408).json({ message: error.message });
-//     }
-//     logger.info('getFriends ends');
-// }
+        let friendRequestAggregate = await FriendModel.aggregate([
+            {
+                $match: { acceptorId: req.user._id, status: "Pending" }
+            },
+            {
+                $facet: {
+                    requests: [
+                        { $sort: { createdAt: 1 } },
+                        { $skip: offset },
+                        { $limit: limit },
+                        {
+                            $lookup: {
+                                from: "metaserver_users",
+                                localField: "requesterId",
+                                foreignField: "_id",
+                                as: "requestFrom",
+                                pipeline: [
+                                    {
+                                        $project: {
+                                            _id: 1,
+                                            firstName: 1,
+                                            lastName: 1,
+                                            gender: 1,
+                                            email: 1,
+                                            active: 1,
+                                            profileAvatar: 1
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    pagination: [
+                        { $count: "total" },
+                        {
+                            $addFields: {
+                                offset: offset,
+                                limit: {
+                                    $cond: [{ $lt: ["$total", limit] }, "$total", limit]
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                $set: {
+                    requests: {
+                        $map: {
+                            input: "$requests",
+                            as: "request",
+                            in: {
+                                $mergeObjects: [
+                                    { $first: "$$request.requestFrom" },
+                                    { friendRequest_id: "$$request._id", friendRequest_status: "$$request.status"}
+                                ]
+                            }
+                        }
+                    },
+                    pagination: { $arrayElemAt: ["$pagination", 0] },
+                    user_id: req.user._id
+                }
+            }
+        ]);
+        res.status(200).json(new ApiResponse(200, friendRequestAggregate[0]));
+    } catch (error) {
 
-// export const friendRequest = async (req, res) => {
-//     const id = req.params.id
-//     const { requesterId, accepterId, action } = req.body;
-//     logger.info(`${API_REQUEST} ${URL_USER}/${id}/friendrequest`);
-//     logger.info(`sendFriendRequest starts`);
-//     if (!mongoose.Types.ObjectId.isValid(requesterId)) {
-//         logger.error(`No user with id ${requesterId} exist.`)
-//         return res.status(404).send(`No user with id ${rid} exist.`);
-//     }
-//     if (!mongoose.Types.ObjectId.isValid(accepterId)) {
-//         logger.error(`No user with id ${accepterId} exist.`)
-//         return res.status(404).send(`No user with id ${fid} exist.`);
-//     }
-//     try {
-//         if (action === ACT_ADD_FRIEND) {
-//             const newRequest = new UserModel(req.body);
-//             await newRequest.save();
-//             logger.info(`send friendrequest successful!`);
-//             res.status(200).json({ message: 'Friend Request is sent successfully.' });
-//         }
-//         else if (action === ACT_ACCEPT_REQUEST) {
-//             await FriendModel.findOneAndUpdate(
-//                 { requesterId: requesterId, accepterId: accepterId },
-//                 { status: 'A' }
-//             );
-//             logger.info(`accept friendrequest successful!`);
-//             res.status(200).json({ message: 'Friend Request is accepted successfully.' });
-//         }
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info('getFriendRequests ends')
+}
 
+export const sendFriendRequest = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_USER}`);
+    logger.info(`sendFriendRequest starts`);
 
-//     } catch (error) {
-//         logger.error(error.message);
-//         res.status(408).json({ message: error.message });
-//     }
-//     logger.info('friendRequest ends');
-// }
+    try {
+        const { requestTo } = req.body;
+        if (!requestTo) throw new ApiError(400, "requestTo id is required to send a request");
+        if (requestTo === req.user._id.toString()) throw new ApiError(400, "friend request cannot be sent to same user");
+        const requestToUser = await UserModel.findById(requestTo);
+        if (!requestToUser) throw new ApiError(400, `no user found with id ${requestTo}`);
+        let friendRequest = await FriendModel.findOne({
+            $or: [
+                { requesterId: req.user._id, acceptorId: requestTo },
+                { requesterId: requestTo, acceptorId: req.user._id },
+            ]
+        }).select("-__v");
 
+        if (friendRequest) {
+            res.status(200).json(new ApiResponse(200, friendRequest, `you are already in ${friendRequest.status} state`));
+        }
+        else {
+            friendRequest = await FriendModel.create({ requesterId: req.user._id, acceptorId: requestTo });
+            friendRequest.__v = undefined;
+            res.status(201).json(new ApiResponse(201, friendRequest, "friend request sent successfully"));
+        }
 
+    } catch (error) {
 
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info('sendFriendRequest ends')
+}
+
+export const acceptFriendRequest = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_USER}`);
+    logger.info(`acceptFriendRequest starts`);
+
+    try {
+        const { rid: _id } = req.params;
+        let friendRequest = await FriendModel.findById(_id).select("-__v");
+        if (!friendRequest) throw new ApiError(400, `no request found with id ${_id}`);
+        if (!friendRequest.acceptorId.equals(req.user._id))
+            throw new ApiError(400, `user cannot accept the request`);
+        if (friendRequest.status === "Pending")
+            friendRequest = await FriendModel.findByIdAndUpdate(_id, { status: "Accepted" }, { new: true }).select("-__v");
+        res.status(200).json(new ApiResponse(200, friendRequest));
+    } catch (error) {
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info('acceptFriendRequest ends')
+}
+
+export const deleteFriendRequest = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_USER}`);
+    logger.info(`deleteFriendRequest starts`);
+
+    try {
+        const { rid: _id } = req.params;
+        let friendRequest = await FriendModel.findById(_id).select("-__v");
+        if (!friendRequest) throw new ApiError(400, `no request found with id ${_id}`);
+        if (!friendRequest.acceptorId.equals(req.user._id) && !friendRequest.requesterId.equals(req.user._id))
+            throw new ApiError(400, `user cannot accept the request`);
+        await FriendModel.findByIdAndDelete(_id);
+        res.status(200).json(new ApiResponse(200, {}, "request deleted successfully"));
+    } catch (error) {
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info('deleteFriendRequest ends')
+}
+
+export const getFriends = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_USER}`);
+    logger.info(`getFriends starts`);
+
+    try {
+        let { offset, limit } = req.query
+        offset = isNaN(offset) ? GET_FR_DEFAULT_OFFSET : parseInt(offset);
+        limit = isNaN(limit) ? GET_FR_DEFAULT_LIMIT : parseInt(limit);
+
+        let friendsAggregate = await FriendModel.aggregate([
+            {
+                $match: {
+                    $and: [
+                        { status: "Accepted" },
+                        {
+                            $or: [
+                                { acceptorId: req.user._id },
+                                { requesterId: req.user._id }
+                            ]
+                        }
+                    ]
+                }
+            },
+            {
+                $facet: {
+                    friends: [
+                        { $sort: { updatedAt: -1 } },
+                        { $skip: offset },
+                        { $limit: limit },
+                        {
+                            $lookup: {
+                                from: "metaserver_users",
+                                let: {
+                                    requester_id: "$requesterId",
+                                    acceptor_id: "$acceptorId"
+                                },
+                                pipeline: [
+                                    {
+                                        $match: {
+                                            $expr: {
+                                                $and: [
+                                                    { $ne: ["$_id", req.user._id] },
+                                                    {
+                                                        $or: [
+                                                            { $eq: ["$_id", "$$requester_id"] },
+                                                            { $eq: ["$_id", "$$acceptor_id"] }
+                                                        ]
+                                                    }
+                                                ]
+                                            }
+                                        }
+                                    },
+                                    {
+                                        $project: {
+                                            _id: 1,
+                                            firstName: 1,
+                                            lastName: 1,
+                                            gender: 1,
+                                            email: 1,
+                                            active: 1,
+                                            profileAvatar: 1,
+                                        }
+                                    }
+
+                                ],
+                                as: "friend"
+                            }
+                        }
+                    ],
+                    pagination: [
+                        { $count: "total" },
+                        {
+                            $addFields: {
+                                offset: offset,
+                                limit: {
+                                    $cond: [{ $lt: ["$total", limit] }, "$total", limit]
+                                }
+                            }
+                        }
+                    ]
+                }
+            },
+            {
+                $set: {
+                    friends: {
+                        $map: {
+                            input: "$friends",
+                            as: "friendRequest",
+                            in: {
+                                $mergeObjects: [
+                                    { $first: "$$friendRequest.friend" },
+                                    { friendRequest_id: "$$friendRequest._id", friendRequest_status: "$$friendRequest.status"}
+                                ]
+                            }
+                        }
+                    },
+                    pagination: { $arrayElemAt: ["$pagination", 0] },
+                    user_id: req.user._id
+                }
+            }
+        ]);
+        res.status(200).json(new ApiResponse(200, friendsAggregate[0]));
+    } catch (error) {
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info('getFriends ends')
+}
 
