@@ -3,7 +3,6 @@ import mongoose from "mongoose";
 const likeSchema = mongoose.Schema({
     like: {
         type: Boolean,
-        default: true,
         required: [true, "value is required"],
     },
     type:{
