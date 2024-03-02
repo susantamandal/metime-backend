@@ -1,6 +1,5 @@
 import mongoose from "mongoose";
 import { destroyFromCloudinary } from "../utils/cloudinary.utils.js";
-import logger from "../logger/index.js";
 
 const commentSchema = mongoose.Schema({
     text: {
