@@ -1,5 +1,4 @@
 import mongoose, { Model } from "mongoose";
-import circularJSON from  "circular-json"
 import { destroyFromCloudinary } from "../utils/cloudinary.utils.js";
 import CommentModel from "./comment.models.js";
 
