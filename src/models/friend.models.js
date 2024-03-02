@@ -4,18 +4,23 @@ const friendSchema = mongoose.Schema({
     requesterId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "metaserver_user",
-        required: true,
+        immutable: true,
+        required: [true, "value is required"],
     },
-    accepterId: {
+    acceptorId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "metaserver_user",
-        required: true,
+        immutable: true,
+        required: [true, "value is required"],
     },
     status:{
         type: String,
-        required: true,
-        enum:["Pending", "Accepted"],
-        default: 'Pending'
+        enum: {
+            values: ["Pending", "Accepted"],
+            message: 'value is not supported'
+        },
+        default: 'Pending',
+        required: [true, "value is required"],
     }
 }, { timestamps: true } );
 
