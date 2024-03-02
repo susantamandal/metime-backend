@@ -3,12 +3,13 @@ import mongoose from "mongoose"
 import logger from '../logger/index.js';
 import UserModel from "../models/user.models.js";
 import PostModel from "../models/post.models.js";
-import { API_REQUEST, URL_POST, GET_POST_DEFAULT_OFFSET, GET_POST_DEFAULT_LIMIT, GET_COMMENT_DEFAULT_LIMIT, GET_COMMENT_DEFAULT_OFFSET } from '../utils/constants.utils.js'
+import { API_REQUEST, URL_POST, GET_POST_DEFAULT_OFFSET, GET_POST_DEFAULT_LIMIT, GET_COMMENT_DEFAULT_LIMIT, GET_COMMENT_DEFAULT_OFFSET, GET_LIKE_DEFAULT_LIMIT, GET_LIKE_DEFAULT_OFFSET } from '../utils/constants.utils.js'
 import { destroyFromCloudinary, uploadOnCloudinary } from "../utils/cloudinary.utils.js";
 import { setUniquePostMediaFileNames, setUniqueCommentMediaFileName } from "../utils/setUniqueFileNames.utils.js";
 import { ApiError } from "../utils/apiError.utils.js";
 import { ApiResponse } from "../utils/apiResponse.utils.js";
 import CommentModel from "../models/comment.models.js";
+import LikeModel from "../models/like.models.js";
 
 export const getPosts = async (req, res) => {
 
@@ -80,8 +81,8 @@ export const getPosts = async (req, res) => {
             },
             {
                 $addFields: {
-                    user_id: user._id,
-                    pagination: { $arrayElemAt: ["$pagination", 0] }
+                    pagination: { $arrayElemAt: ["$pagination", 0] },
+                    user_id: user._id
                 }
             }
         ]);
@@ -129,8 +130,7 @@ export const deletePost = async (req, res) => {
     logger.info(`${API_REQUEST} ${URL_POST}`);
     logger.info(`deletePost starts!`)
     try {
-        let { id, _id } = req.query;
-        _id = _id ? _id : id;
+        let { pid: _id } = req.params;
         if (!_id) {
             throw new ApiError(400, "post id/_id is required to delete");
         }
@@ -279,8 +279,8 @@ export const getComments = async (req, res) => {
             },
             {
                 $addFields: {
-                    post_id: _id,
-                    pagination: { $arrayElemAt: ["$pagination", 0] }
+                    pagination: { $arrayElemAt: ["$pagination", 0] },
+                    post_id: _id
                 }
             }
         ]);
@@ -375,8 +375,7 @@ export const deleteComment = async (req, res) => {
     logger.info(`${API_REQUEST} ${URL_POST}`);
     logger.info(`deleteComment starts!`)
     try {
-        let { id, _id } = req.query;
-        _id = _id ? _id : id;
+        let { cid: _id } = req.params;
         if (!_id) throw new ApiError(400, "comment id/_id is required to delete");
         const comment = await CommentModel.findById(_id);
         if (!comment) throw new ApiError(400, `no comment found with id ${_id}`);
@@ -393,4 +392,130 @@ export const deleteComment = async (req, res) => {
         res.status(error.statusCode).json(error);
     }
     logger.info(`deleteComment ends!`)
+}
+
+export const getLikes = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_POST}`);
+    logger.info(`getLikes starts!`)
+    try {
+        let { id: _id } = req.params, { offset, limit } = req.query;
+
+        offset = isNaN(offset) ? GET_LIKE_DEFAULT_OFFSET : parseInt(offset);
+        limit = isNaN(limit) ? GET_LIKE_DEFAULT_LIMIT : parseInt(limit);
+
+        if (!_id) throw new ApiError(400, `post or comment id/_id is required to fetch likes`);
+
+        const like = await LikeModel.findOne({ like: true, postedTo: _id });
+
+        if (!like)
+            throw new ApiError(400, `no like available for the post/comment with id ${_id}`);
+
+        const doc = (like.type === "Comment" ? await CommentModel.findById(_id) : await PostModel.findById(_id));
+
+        if (!doc) throw new ApiError(400, `no ${like.type.toLowercase()} found with id ${_id}`);
+
+        const likesAggregate = await LikeModel.aggregate([
+            {
+                $match: {
+                    like: true,
+                    postedTo: doc._id
+                }
+            },
+            {
+
+                $facet: {
+                    likes: [
+                        { $sort: { createdAt: 1 } },
+                        { $skip: offset },
+                        { $limit: limit },
+                        {
+                            $lookup: {
+                                from: "metaserver_users",
+                                localField: "createdBy",
+                                foreignField: "_id",
+                                as: "likedBy",
+                                pipeline: [
+                                    {
+                                        $project: {
+                                            _id: 1,
+                                            firstName: 1,
+                                            lastName: 1,
+                                            gender: 1,
+                                            email: 1,
+                                            active: 1,
+                                            profileAvatar: 1,
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    pagination: [
+                        { $count: 'total' },
+                        {
+                            $addFields: {
+                                offset: offset,
+                                limit: { $cond: [{ $lt: ["$total", limit] }, "$total", limit] }
+                            }
+                        }
+
+                    ]
+                }
+
+            },
+            {
+                $set: {
+                    likes: {
+                        $map: {
+                            input: "$likes",
+                            as: "like",
+                            in: {
+                                $mergeObjects: [
+                                    { $first: "$$like.likedBy" },
+                                    { like_id: "$$like._id", like_type: "$$like.type" }
+                                ]
+                            }
+                        }
+                    },
+                    pagination: { $first: "$pagination" },
+                    post_id: _id
+                }
+            }
+        ]);
+
+        res.status(200).json(new ApiResponse(200, likesAggregate[0]));
+    }
+    catch (error) {
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info(`getLikes ends!`)
+}
+
+export const createLike = async (req, res) => {
+    logger.info(`${API_REQUEST} ${URL_POST}`);
+    logger.info(`createLike starts!`)
+    try {
+        let { type, postedTo } = req.body;
+        if (!type || !postedTo) throw new ApiError(400, "type and postedTo id are required to post a like");
+        const doc = (type === "Comment" ? await CommentModel.findById(postedTo) : await PostModel.findById(postedTo));
+        if (!doc) throw new ApiError(400, `no ${type.toLowercase()} found with id ${postedTo}`);
+
+        let like = await LikeModel.findOne({ postedTo, createdBy: req.user._id });
+
+        if (like)
+            like = await LikeModel.findByIdAndUpdate(like._id, { like: true }, { new: true });
+        else
+            like = await LikeModel.create({ type, postedTo, createdBy: req.user._id });
+
+        like.__v = undefined;
+        res.status(201).json(new ApiResponse(201, like));
+    }
+    catch (error) {
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info(`createLike ends!`)
 }
