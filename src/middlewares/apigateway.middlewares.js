@@ -6,7 +6,8 @@ import logger from '../logger/index.js';
 export const verifyAccessToken = async (req, res, next) => {
     logger.info('....auth.middlewares-verifyJwt  starts....')
     try {
-        const token = req.cookie?.accessToken || req.header("Authorization")?.split(" ")[1];
+
+        const token = req.cookies?.accessToken || req.header("Authorization")?.split(" ")[1];
 
         if (!token)
             throw new ApiError(401, "unauthorized access request")
@@ -20,6 +21,8 @@ export const verifyAccessToken = async (req, res, next) => {
 
         const decodedRefreshToken = Jwt.verify(user.refreshToken, process.env.REFRESH_TOKEN_SECRET);
 
+        console.log(decodedAccessToken.iat , decodedRefreshToken.iat, decodedAccessToken.iat < decodedRefreshToken.iat)
+        
         if(decodedAccessToken.iat < decodedRefreshToken.iat)
             throw new ApiError(401, "session refreshed already");
 
