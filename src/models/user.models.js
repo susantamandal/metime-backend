@@ -59,6 +59,10 @@ const userSchema = mongoose.Schema({
         type: String,
         trim: true
     },
+    coverPhoto: {
+        type: String,
+        trim: true
+    },
     accountDisabled: {
         type: Boolean,
         default: false,
