@@ -16,10 +16,10 @@ const friendSchema = mongoose.Schema({
     status:{
         type: String,
         enum: {
-            values: ["Pending", "Accepted"],
-            message: 'value is not supported'
+            values: ["Pending", "Accepted", "Blocked"],
+            message: "value is not supported"
         },
-        default: 'Pending',
+        default: "Pending",
         required: [true, "value is required"],
     }
 }, { timestamps: true } );
