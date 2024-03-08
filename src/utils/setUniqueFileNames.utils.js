@@ -23,6 +23,29 @@ export const setUniqueProfileAvatarFileName = async function (req) {
     return newPath;
 }
 
+export const setUniqueCoverPhotoFileName = async function (req) {
+
+    if(!req.file) return "";
+
+    const { destination, path, filename } = req.file;
+
+    if (!path) {
+        throw new ApiError(400, `coverPhoto file is required`);
+    }
+
+    const fileExtension = filename?.split('.').pop();
+    const uniqueFileName = `cover-photo-${req.user._id}${fileExtension !== filename ? ("." + fileExtension) : ""}`;
+    const newPath = destination + "/" + uniqueFileName;
+
+    await fs.rename(path, newPath, (error) => {
+        if (error) {
+            throw new ApiError(500, "error in renaming coverPhoto file, try again later");
+        }
+    });
+
+    return newPath;
+}
+
 export const setUniqueCommentMediaFileName = async function (req) {
 
     if(!req.file) return "";
