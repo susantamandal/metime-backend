@@ -48,6 +48,33 @@ export const getPosts = async (req, res) => {
                         { $limit: limit },
                         {
                             $lookup: {
+                                from: "metaserver_users",
+                                localField: "createdBy",
+                                foreignField: "_id",
+                                as: "createdBy",
+                                pipeline: [
+                                    {
+                                        $project: {
+                                            _id: 1,
+                                            firstName: 1,
+                                            lastName: 1,
+                                            gender: 1,
+                                            email: 1,
+                                            active: 1,
+                                            profileAvatar: 1,
+                                            coverPhoto: 1
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            $set: {
+                                createdBy: { $first: "$createdBy" }
+                            }
+                        },
+                        {
+                            $lookup: {
                                 from: "metaserver_comments",
                                 localField: "_id",
                                 foreignField: "belongsTo",
@@ -55,7 +82,7 @@ export const getPosts = async (req, res) => {
                             }
                         },
                         {
-                            $addFields: {
+                            $set: {
                                 totalComments: { $size: "$comments" }
                             }
                         },
@@ -80,8 +107,8 @@ export const getPosts = async (req, res) => {
                 }
             },
             {
-                $addFields: {
-                    pagination: { $arrayElemAt: ["$pagination", 0] },
+                $set: {
+                    pagination: { $first: "$pagination" },
                     user_id: user._id
                 }
             }
@@ -234,7 +261,7 @@ export const getComments = async (req, res) => {
                 $match: {
                     $and: [
                         { belongsTo: post._id },
-                        { parent: mongoose.mongo.ObjectId(parent) }
+                        { parent: new mongoose.Types.ObjectId(parent) }
                     ]
                 }
             },
@@ -305,7 +332,7 @@ export const createComment = async (req, res) => {
         let { media, parent, ...rest } = req.body
 
         if (!parent) {
-            parent = mongoose.Types.ObjectId.createFromHexString("000000000000000000000000");
+            parent = new mongoose.Types.ObjectId("000000000000000000000000");
         }
         let comment = await CommentModel.create({ createdBy: req.user._id, parent, ...rest });
         comment.__v = undefined;
@@ -444,6 +471,7 @@ export const getLikesOrDisLikes = async (req, res) => {
                                             email: 1,
                                             active: 1,
                                             profileAvatar: 1,
+                                            coverPhoto: 1
                                         }
                                     }
                                 ]
@@ -523,7 +551,7 @@ export const removeLikeOrDisLike = async (req, res) => {
         let { id: postedTo } = req.params, like = (!req.path.includes("dislike"));
         if (!postedTo) throw new ApiError(400, "postedTo id is required to delete a like");
         const likeDoc = await LikeModel.findOneAndDelete({ like, postedTo, createdBy: req.user._id });
-        if(!likeDoc) throw new ApiError(400, `no ${like?'like':'dislike'} found by the user ${req.user._id}`);
+        if (!likeDoc) throw new ApiError(400, `no ${like ? 'like' : 'dislike'} found by the user ${req.user._id}`);
         res.status(200).json(new ApiResponse(200, {}, "like/dislike deleted sucessfully"));
     }
     catch (error) {
