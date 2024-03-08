@@ -1,38 +1,41 @@
 import logger from '../logger/index.js';
 import UserModel from "../models/user.models.js";
 import FriendModel from "../models/friend.models.js";
-import { API_REQUEST, URL_USER, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK, ACT_DELETE_REQUEST, ACT_ADD_FRIEND, GET_FR_DEFAULT_OFFSET, GET_FR_DEFAULT_LIMIT } from '../utils/constants.utils.js'
+import { API_REQUEST, URL_USER, GET_FR_DEFAULT_OFFSET, GET_FR_DEFAULT_LIMIT } from '../utils/constants.utils.js'
 import { ApiError } from "../utils/apiError.utils.js";
 import { ApiResponse } from "../utils/apiResponse.utils.js";
 import { destroyFromCloudinary, uploadOnCloudinary } from "../utils/cloudinary.utils.js";
-import { setUniqueProfileAvatarFileName } from "../utils/setUniqueFileNames.utils.js";
+import { setUniqueProfileAvatarFileName, setUniqueCoverPhotoFileName } from "../utils/setUniqueFileNames.utils.js";
+import mongoose from 'mongoose';
+import { generateActionsOnUser } from '../utils/generateActions.utils.js';
 
 
-export const getActionsOnFriend = async (req, res) => {
-    const { uid, fid } = req.params;
+export const getActionsOnUser = async (req, res) => {
 
-    logger.info(`${API_REQUEST} ${URL_USER}/${uid}/friend/${fid}/actions`);
+    logger.info(`${API_REQUEST} ${URL_USER}`);
     logger.info(`getActionsOnUser starts`);
 
     try {
-        // const user = await UserModel.find({ _id: uid });
-        // const friend = await UserModel.find({ _id: fid });
-        const connection = await FriendModel.findOne({ $or: [{ requesterId: uid, acceptorId: fid }, { requesterId: fid, acceptorId: uid }] });
-        let actions = []
-        if (connection?.status === 'A') {
-            actions = [...actions, ACT_MESSAGE, ACT_UNFRIEND, ACT_BLOCK]
-        }
-        else if (connection?.status === 'P') {
-            actions = [...actions, ACT_DELETE_REQUEST, ACT_BLOCK]
-        }
-        else {
-            actions = [...actions, ACT_ADD_FRIEND, ACT_BLOCK]
-        }
-        logger.info(`getActionsOnUser successful!`);
-        res.status(200).json(actions);
+
+        const { uid } = req.params;
+
+        let user = await UserModel.findById(uid);
+
+        if (!user)
+            throw new ApiError(400, `user not found with id ${uid}`);
+
+        const actions = await generateActionsOnUser(uid, req.user._id);
+        res.status(200).json({
+            actionOn: uid,
+            actionBy: req.user._id,
+            actions: actions
+        });
+
     } catch (error) {
-        logger.error(error.message);
-        res.status(404).json({ message: error.message });
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
     }
     logger.info('getActionsOnUser ends')
 }
@@ -178,7 +181,7 @@ export const updateProfileAvatar = async (req, res) => {
             if (!avatar)
                 throw new ApiError(500, "error in uploading avatar file");
 
-            const user = await UserModel.findByIdAndUpdate(req.user._id, { profileAvatar: avatar.secure_url }, { new: true }).select("_id profileAvatar");
+            const user = await UserModel.findByIdAndUpdate(req.user._id, { profileAvatar: avatar.secure_url }, { new: true }).select("-password -refreshToken -__v");
 
             res.status(200).json(new ApiResponse(200, user, "avatar uploaded successfully"));
 
@@ -192,6 +195,56 @@ export const updateProfileAvatar = async (req, res) => {
     }
     logger.info('updateProfileAvatar ends')
 }
+
+export const updateCoverPhoto = async (req, res) => {
+
+    logger.info(`${API_REQUEST} ${URL_USER}`);
+    logger.info(`updateCoverPhoto starts`);
+
+    try {
+
+        if (req.method === "DELETE") {
+
+            if (!req.user.coverPhoto) throw new ApiError(400, "cover photo not found");
+            const response = await destroyFromCloudinary(`cover-photo-${req.user._id}`);
+            if (response.result === "ok") {
+                await UserModel.findByIdAndUpdate(req.user._id, {
+                    $unset: {
+                        coverPhoto: 1
+                    }
+                });
+                res.status(200).json(new ApiResponse(200, response, "cover photo deleted successfully"));
+            }
+            else
+                throw new ApiError(500, "error in deleting coverPhoto");
+        }
+        else {
+
+            const coverPhotoLocalPath = await setUniqueCoverPhotoFileName(req);
+
+            if (!coverPhotoLocalPath)
+                throw new ApiError(400, "cover photo file is required");
+
+            const coverPhoto = await uploadOnCloudinary(coverPhotoLocalPath);
+
+            if (!coverPhoto)
+                throw new ApiError(500, "error in uploading coverPhoto file");
+
+            const user = await UserModel.findByIdAndUpdate(req.user._id, { coverPhoto: coverPhoto.secure_url }, { new: true }).select("-password -refreshToken -__v");
+
+            res.status(200).json(new ApiResponse(200, user, "coverPhoto uploaded successfully"));
+
+        }
+
+    } catch (error) {
+
+        logger.info(error.stack)
+        error = new ApiError(error?.statusCode || 400, error.message);
+        res.status(error.statusCode).json(error);
+    }
+    logger.info('updateCoverPhoto ends')
+}
+
 
 export const getUserRequests = async (req, res) => {
     logger.info(`${API_REQUEST} ${URL_USER}`);
@@ -228,7 +281,8 @@ export const getUserRequests = async (req, res) => {
                                             gender: 1,
                                             email: 1,
                                             active: 1,
-                                            profileAvatar: 1
+                                            profileAvatar: 1,
+                                            coverPhoto: 1
                                         }
                                     }
                                 ]
@@ -249,7 +303,7 @@ export const getUserRequests = async (req, res) => {
                 }
             },
             {
-                
+
                 $set: {
                     requests: {
                         $map: {
@@ -258,7 +312,7 @@ export const getUserRequests = async (req, res) => {
                             in: {
                                 $mergeObjects: [
                                     { $first: "$$request.requestTo" },
-                                    { friendRequest_id: "$$request._id", friendRequest_status: "$$request.status"}
+                                    { friendRequest_id: "$$request._id", friendRequest_status: "$$request.status" }
                                 ]
                             }
                         }
@@ -268,6 +322,9 @@ export const getUserRequests = async (req, res) => {
                 }
             }
         ]);
+        for (let friend of friendsAggregate[0].friends) {
+            friend.actions = await generateActionsOnUser(friend._id, req.user._id)
+        }
 
         res.status(200).json(new ApiResponse(200, userRequestAggregate[0]));
     } catch (error) {
@@ -313,7 +370,8 @@ export const getFriendRequests = async (req, res) => {
                                             gender: 1,
                                             email: 1,
                                             active: 1,
-                                            profileAvatar: 1
+                                            profileAvatar: 1,
+                                            coverPhoto: 1
                                         }
                                     }
                                 ]
@@ -342,7 +400,7 @@ export const getFriendRequests = async (req, res) => {
                             in: {
                                 $mergeObjects: [
                                     { $first: "$$request.requestFrom" },
-                                    { friendRequest_id: "$$request._id", friendRequest_status: "$$request.status"}
+                                    { friendRequest_id: "$$request._id", friendRequest_status: "$$request.status" }
                                 ]
                             }
                         }
@@ -352,6 +410,11 @@ export const getFriendRequests = async (req, res) => {
                 }
             }
         ]);
+
+        for (let friend of friendRequestAggregate[0].request) {
+            friend.actions = await generateActionsOnUser(friend._id, req.user._id)
+        }
+
         res.status(200).json(new ApiResponse(200, friendRequestAggregate[0]));
     } catch (error) {
 
@@ -445,7 +508,8 @@ export const getFriends = async (req, res) => {
     logger.info(`getFriends starts`);
 
     try {
-        let { offset, limit } = req.query
+        let { uid: user_id } = req.params, { offset, limit } = req.query;
+        user_id = new mongoose.Types.ObjectId(user_id);
         offset = isNaN(offset) ? GET_FR_DEFAULT_OFFSET : parseInt(offset);
         limit = isNaN(limit) ? GET_FR_DEFAULT_LIMIT : parseInt(limit);
 
@@ -456,8 +520,8 @@ export const getFriends = async (req, res) => {
                         { status: "Accepted" },
                         {
                             $or: [
-                                { acceptorId: req.user._id },
-                                { requesterId: req.user._id }
+                                { acceptorId: user_id },
+                                { requesterId: user_id }
                             ]
                         }
                     ]
@@ -481,7 +545,7 @@ export const getFriends = async (req, res) => {
                                         $match: {
                                             $expr: {
                                                 $and: [
-                                                    { $ne: ["$_id", req.user._id] },
+                                                    { $ne: ["$_id", user_id] },
                                                     {
                                                         $or: [
                                                             { $eq: ["$_id", "$$requester_id"] },
@@ -501,6 +565,7 @@ export const getFriends = async (req, res) => {
                                             email: 1,
                                             active: 1,
                                             profileAvatar: 1,
+                                            coverPhoto: 1
                                         }
                                     }
 
@@ -531,16 +596,21 @@ export const getFriends = async (req, res) => {
                             in: {
                                 $mergeObjects: [
                                     { $first: "$$friendRequest.friend" },
-                                    { friendRequest_id: "$$friendRequest._id", friendRequest_status: "$$friendRequest.status"}
+                                    { friendRequest_id: "$$friendRequest._id", friendRequest_status: "$$friendRequest.status" }
                                 ]
                             }
                         }
                     },
                     pagination: { $arrayElemAt: ["$pagination", 0] },
-                    user_id: req.user._id
+                    user_id
                 }
             }
         ]);
+
+        for (let friend of friendsAggregate[0].friends) {
+            friend.actions = await generateActionsOnUser(friend._id, req.user._id)
+        }
+
         res.status(200).json(new ApiResponse(200, friendsAggregate[0]));
     } catch (error) {
 
